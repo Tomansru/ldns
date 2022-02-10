@@ -1,0 +1,19 @@
+dns:
+  address: "192.168.51.74:53"
+  type: "udp"
+  ttl: 86400
+  relayAddr: "94.140.14.14:853"
+  relayType: "tcp-tls"
+  defaultIp: "192.168.51.74"
+  dns:
+    tomans.ru: ""
+https:
+  address: "192.168.51.74:443"
+  caCert: "./rootCA.crt"
+  caKey: "./rootCA.key"
+http:
+  address: "192.168.51.74:80"
+eth:
+  out:
+    - "192.168.51.200/32"
+    - "192.168.51.201/32"
