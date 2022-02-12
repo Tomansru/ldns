@@ -6,7 +6,7 @@ dns:
   relayType: "tcp-tls"
   defaultIp: "192.168.51.74"
   dns:
-    tomans.ru: ""
+    tomans.ru: "192.168.51.200/32"
 https:
   address: "192.168.51.74:443"
   caCert: "./rootCA.crt"

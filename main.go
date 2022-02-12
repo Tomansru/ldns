@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -14,6 +16,7 @@ import (
 	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/miekg/dns"
@@ -89,7 +92,7 @@ func main() {
 		},
 	}
 
-	var addrs []*net.TCPAddr
+	var addrs map[string]*net.TCPAddr
 	cnf.Eth.Bridges, addrs, err = BindBridger(cnf.Eth.Out)
 	if err != nil {
 		logger.Error("Error BindBridger", zap.Error(err))
@@ -213,8 +216,18 @@ func (h *Hl) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		}
 	default:
 		m, _, err = h.dnsClient.Exchange(r, h.config.Dns.RelayAddr)
-		if err != nil {
+		switch {
+		case err == nil:
+			// pass
+		case errors.Is(err, context.DeadlineExceeded):
+			logger.Debug("Context deadline", zap.Error(err))
+			return
+		case errors.Is(err, syscall.ECONNRESET):
+			logger.Debug("Connection reset by peer", zap.Error(err))
+			return
+		default:
 			logger.Error("Client exchange error", zap.Error(err))
+			panic(err) // for dev
 		}
 	}
 
@@ -242,6 +255,7 @@ func (h *Hl) ServeHTTP(ctx *fasthttp.RequestCtx) {
 	prepareRequest(req)
 	if err := proxyClient.Do(req, resp); err != nil {
 		logger.Error("Write proxyClient.Do error", zap.Error(err))
+		panic(err) // for dev
 	}
 	postprocessResponse(resp)
 
@@ -326,8 +340,8 @@ func (h *Hl) GenerateTestCertificate(hosts []string) ([]byte, []byte, error) {
 }
 
 // BindBridger create net interface and bind address
-func BindBridger(hosts []string) ([]*netlink.Bridge, []*net.TCPAddr, error) {
-	addrs := make([]*net.TCPAddr, 0, len(hosts))
+func BindBridger(hosts []string) ([]*netlink.Bridge, map[string]*net.TCPAddr, error) {
+	addrs := make(map[string]*net.TCPAddr, len(hosts))
 	brs := make([]*netlink.Bridge, 0, len(hosts))
 	for i, v := range hosts {
 		li := netlink.NewLinkAttrs()
@@ -356,17 +370,17 @@ func BindBridger(hosts []string) ([]*netlink.Bridge, []*net.TCPAddr, error) {
 			return nil, nil, fmt.Errorf("error net.ResolveTCPAddr: %w", err)
 		}
 
-		addrs = append(addrs, ad)
+		addrs[v] = ad
 		brs = append(brs, br)
 	}
 
 	return brs, addrs, nil
 }
 
-func BuildHttpClient(addrs []*net.TCPAddr) (map[string]*fasthttp.Client, error) {
+func BuildHttpClient(addrs map[string]*net.TCPAddr) (map[string]*fasthttp.Client, error) {
 	cls := make(map[string]*fasthttp.Client, len(addrs))
-	for _, v := range addrs {
-		cls[v.IP.String()] = NewHttpClient(v)
+	for k, v := range addrs {
+		cls[k] = NewHttpClient(v)
 	}
 	return cls, nil
 }
